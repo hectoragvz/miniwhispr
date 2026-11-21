@@ -11,6 +11,7 @@
   },
   "app": {
     "windows": [],
+    "macOSPrivateApi": true,
     "security": {
       "csp": null
     }
@@ -29,7 +30,8 @@
     ],
     "macOS": {
       "minimumSystemVersion": "13.0",
-      "signingIdentity": "Miniwhispr Local Signing"
+      "signingIdentity": "Miniwhispr Local Signing",
+      "entitlements": "./Entitlements.plist"
     }
   }
 }

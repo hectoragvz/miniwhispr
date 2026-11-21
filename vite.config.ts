@@ -31,7 +31,15 @@ export default defineConfig(() => ({
     },
   },
 
+  // Each window has its own page.
+  build: {
+    rolldownOptions: {
+      input: { toast: "toast.html" },
+    },
+  },
+
   test: {
     environment: "jsdom",
+    setupFiles: ["src/test-setup.ts"],
   },
 }));

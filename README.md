@@ -39,6 +39,8 @@ It is a personal, open-source project: there are no downloads, you clone it and 
 
 Miniwhispr appears in the menu bar, with no Dock icon. It turns on **Launch at login** the first time it runs. You can turn it off from its menu.
 
+Hold Ctrl + Space to dictate. The first time, macOS asks for two permissions: **Accessibility**, to catch the shortcut, and **Microphone**. Grant both.
+
 ## Develop
 
 ```sh

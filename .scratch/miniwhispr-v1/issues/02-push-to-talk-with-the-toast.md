@@ -6,13 +6,13 @@
 
 **Blocked by:** 01 (Menu bar app skeleton, CI and repo basics)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Dictation core exists as a module with no macOS, network or UI knowledge, depending only on Recorder, Transcriber, Cleaner, Inserter, Feedback and Clock interfaces (Transcriber, Cleaner and Inserter may be no-op real implementations for now)
-- [ ] Core tests with fakes and a controllable clock cover: tap under 250 ms requests pass-through with no Toast and no sound; hold reaching 250 ms starts listening with start sound and listening Toast; release produces stop sound, processing Toast, then hidden; presses while processing are ignored and not passed through; the 10-minute limit ends the Dictation as if released
-- [ ] Ctrl + Space is captured globally via an event tap and swallowed: holding it types no spaces into any text field
-- [ ] A Ctrl + Space tap under 250 ms is re-emitted to the focused app (VS Code autocomplete still opens)
-- [ ] Recorder captures from the current default input device, follows default-device changes between Dictations, and records 16 kHz mono
-- [ ] Toast is a borderless, transparent, always-on-top, non-activating window that never takes focus
-- [ ] Toast renders listening (waves responding to level), processing (spinner) and hidden, never shows text; covered by Vitest tests per state
-- [ ] Soft start and stop sounds play
+- [x] Dictation core exists as a module with no macOS, network or UI knowledge, depending only on Recorder, Transcriber, Cleaner, Inserter, Feedback and Clock interfaces (Transcriber, Cleaner and Inserter may be no-op real implementations for now)
+- [x] Core tests with fakes and a controllable clock cover: tap under 250 ms requests pass-through with no Toast and no sound; hold reaching 250 ms starts listening with start sound and listening Toast; release produces stop sound, processing Toast, then hidden; presses while processing are ignored and not passed through; the 10-minute limit ends the Dictation as if released
+- [x] Ctrl + Space is captured globally via an event tap and swallowed: holding it types no spaces into any text field
+- [x] A Ctrl + Space tap under 250 ms is re-emitted to the focused app (VS Code autocomplete still opens)
+- [x] Recorder captures from the current default input device, follows default-device changes between Dictations, and records 16 kHz mono
+- [x] Toast is a borderless, transparent, always-on-top, non-activating window that never takes focus
+- [x] Toast renders listening (waves responding to level), processing (spinner) and hidden, never shows text; covered by Vitest tests per state
+- [x] Soft start and stop sounds play
