@@ -6,7 +6,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [ ] The app builds with the documented commands and appears as a menu bar icon with no Dock icon
 - [ ] App name is "Miniwhispr" everywhere; bundle identifier `com.hectoragvz.miniwhispr`

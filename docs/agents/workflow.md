@@ -18,7 +18,7 @@ Tickets live in `.scratch/<feature>/issues/NN-<slug>.md`. Pick the lowest-number
 ## Local checks before every push
 
 - `cargo fmt --check`
-- `cargo clippy` (warnings as errors)
+- `cargo clippy --all-targets -- -D warnings`
 - `cargo test`
 - `pnpm tsc`
 - `pnpm lint`
