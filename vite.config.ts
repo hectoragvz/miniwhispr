@@ -34,7 +34,7 @@ export default defineConfig(() => ({
   // Each window has its own page.
   build: {
     rolldownOptions: {
-      input: { toast: "toast.html" },
+      input: { toast: "toast.html", key: "key.html" },
     },
   },
 

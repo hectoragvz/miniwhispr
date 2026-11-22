@@ -1,17 +1,17 @@
 //! Runs the Dictation core on a thread of its own, wired to the real
-//! keyboard, microphone, Toast and sounds. The core sees one input at a
-//! time, and is woken whenever it has a deadline.
+//! keyboard, microphone, Groq, Toast, sounds and menu. The core sees one
+//! input at a time, and is woken whenever it has a deadline.
 
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Instant;
 
-use tauri::AppHandle;
+use tauri::menu::MenuItem;
+use tauri::{AppHandle, Manager, Wry};
 
-use crate::dictation::{
-    Audio, Cleaner, Clock, Dictation, Feedback, Inserter, Release, SAMPLE_RATE, Sound, Toast,
-    Transcriber,
-};
+use crate::clipboard;
+use crate::dictation::{Cleaner, Clock, Dictation, Feedback, Inserter, Release, Sound, Toast};
+use crate::groq::GroqTranscriber;
 use crate::microphone::Microphone;
 use crate::shortcut::{self, Shortcut};
 use crate::sounds::Sounds;
@@ -20,13 +20,20 @@ use crate::toast;
 enum Input {
     Shortcut(Shortcut, Instant),
     Level(f32),
+    CopyLastDictation,
 }
 
-/// Starts listening for Ctrl + Space.
-pub fn start(app: &AppHandle) {
+/// Lets the menu reach the Dictation thread.
+struct Inputs(Sender<Input>);
+
+/// Starts listening for Ctrl + Space. `copy_item` is the "Copy last
+/// dictation" menu item, enabled once there is a Last Dictation.
+pub fn start(app: &AppHandle, copy_item: MenuItem<Wry>) {
     let (inputs, received) = mpsc::channel();
+    app.manage(Inputs(inputs.clone()));
     let levels = inputs.clone();
     let app = app.clone();
+    let main_thread = app.clone();
     thread::Builder::new()
         .name("dictation".into())
         .spawn(move || {
@@ -36,7 +43,7 @@ pub fn start(app: &AppHandle) {
                 Box::new(Microphone::new(move |level| {
                     let _ = levels.send(Input::Level(level));
                 })),
-                Box::new(NotYet),
+                Box::new(GroqTranscriber::new()),
                 Box::new(NotYet),
                 Box::new(NotYet),
                 Box::new(AppFeedback {
@@ -45,6 +52,7 @@ pub fn start(app: &AppHandle) {
                 }),
                 Box::new(SystemClock),
             );
+            let mut copy_enabled = false;
             loop {
                 let input = match core.next_deadline() {
                     Some(deadline) => {
@@ -60,8 +68,25 @@ pub fn start(app: &AppHandle) {
                         }
                     }
                     Ok(Input::Level(level)) => core.level(level),
+                    Ok(Input::CopyLastDictation) => {
+                        if let Some(text) = core.last_dictation() {
+                            let text = text.to_string();
+                            if let Err(e) =
+                                main_thread.run_on_main_thread(move || clipboard::copy(&text))
+                            {
+                                log::error!("Could not copy the Last Dictation: {e}");
+                            }
+                        }
+                    }
                     Err(RecvTimeoutError::Timeout) => core.tick(),
                     Err(RecvTimeoutError::Disconnected) => return,
+                }
+                // A Last Dictation, once there, is only ever replaced.
+                if !copy_enabled && core.last_dictation().is_some() {
+                    copy_enabled = true;
+                    if let Err(e) = copy_item.set_enabled(true) {
+                        log::error!("Could not enable Copy last dictation: {e}");
+                    }
                 }
             }
         })
@@ -70,6 +95,12 @@ pub fn start(app: &AppHandle) {
     shortcut::watch(move |shortcut, at| {
         let _ = inputs.send(Input::Shortcut(shortcut, at));
     });
+}
+
+/// Copies the Last Dictation to the clipboard. Waits for a Dictation that
+/// is still processing, so it copies that one.
+pub fn copy_last_dictation(app: &AppHandle) {
+    let _ = app.state::<Inputs>().0.send(Input::CopyLastDictation);
 }
 
 struct AppFeedback {
@@ -95,17 +126,9 @@ impl Clock for SystemClock {
     }
 }
 
-/// Stands in for transcription, Cleanup and Insertion until they exist:
-/// nothing is transcribed or inserted.
+/// Stands in for Cleanup and Insertion until they exist: the Transcript is
+/// the final text, and nothing is inserted.
 struct NotYet;
-
-impl Transcriber for NotYet {
-    fn transcribe(&mut self, audio: &Audio) -> Result<String, String> {
-        let seconds = audio.samples.len() as f32 / SAMPLE_RATE as f32;
-        log::info!("Captured {seconds:.1} s of audio");
-        Ok(String::new())
-    }
-}
 
 impl Cleaner for NotYet {
     fn clean(&mut self, transcript: &str) -> Result<String, String> {

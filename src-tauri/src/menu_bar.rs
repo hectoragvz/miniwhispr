@@ -1,15 +1,26 @@
-use tauri::AppHandle;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
+use tauri::{AppHandle, Wry};
 
-use crate::launch_at_login;
+use crate::{driver, key_window, launch_at_login};
 
+const COPY_LAST_DICTATION: &str = "copy-last-dictation";
+const GROQ_API_KEY: &str = "groq-api-key";
 const LAUNCH_AT_LOGIN: &str = "launch-at-login";
 const QUIT: &str = "quit";
 
-/// Puts the Miniwhispr icon and its menu in the macOS menu bar.
-pub fn create(app: &AppHandle) -> tauri::Result<()> {
+/// Puts the Miniwhispr icon and its menu in the macOS menu bar. Returns the
+/// "Copy last dictation" item, which starts disabled.
+pub fn create(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
+    let copy_last_dictation = MenuItem::with_id(
+        app,
+        COPY_LAST_DICTATION,
+        "Copy last dictation",
+        false,
+        None::<&str>,
+    )?;
+    let groq_api_key = MenuItem::with_id(app, GROQ_API_KEY, "Groq API key…", true, None::<&str>)?;
     let launch_at_login_item = CheckMenuItem::with_id(
         app,
         LAUNCH_AT_LOGIN,
@@ -22,6 +33,9 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let menu = Menu::with_items(
         app,
         &[
+            &copy_last_dictation,
+            &PredefinedMenuItem::separator(app)?,
+            &groq_api_key,
             &launch_at_login_item,
             &PredefinedMenuItem::separator(app)?,
             &quit,
@@ -34,6 +48,12 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
         .tooltip("Miniwhispr")
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
+            COPY_LAST_DICTATION => driver::copy_last_dictation(app),
+            GROQ_API_KEY => {
+                if let Err(e) = key_window::open(app) {
+                    log::error!("Could not open the Groq API key window: {e}");
+                }
+            }
             LAUNCH_AT_LOGIN => {
                 let wanted = !launch_at_login::is_enabled();
                 if let Err(e) = launch_at_login::set_enabled(wanted) {
@@ -48,5 +68,5 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
             _ => {}
         })
         .build(app)?;
-    Ok(())
+    Ok(copy_last_dictation)
 }

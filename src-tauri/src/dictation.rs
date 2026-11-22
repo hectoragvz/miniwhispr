@@ -96,6 +96,9 @@ pub struct Dictation {
     /// When the last Dictation finished processing. Presses made before this
     /// happened while it was busy, and are ignored.
     ready_at: Instant,
+    /// The final text of the most recent successful Dictation. In memory
+    /// only, never written to disk.
+    last_dictation: Option<String>,
     recorder: Box<dyn Recorder>,
     transcriber: Box<dyn Transcriber>,
     cleaner: Box<dyn Cleaner>,
@@ -116,6 +119,7 @@ impl Dictation {
         Self {
             state: State::Idle,
             ready_at: clock.now(),
+            last_dictation: None,
             recorder,
             transcriber,
             cleaner,
@@ -133,6 +137,11 @@ impl Dictation {
         {
             self.state = State::Pending { pressed_at: at };
         }
+    }
+
+    /// The final text of the most recent successful Dictation, if any.
+    pub fn last_dictation(&self) -> Option<&str> {
+        self.last_dictation.as_deref()
     }
 
     /// The microphone input level, from 0 (silence) to 1 (loud).
@@ -206,9 +215,19 @@ impl Dictation {
         let text = self
             .transcriber
             .transcribe(&audio)
+            .and_then(|transcript| {
+                if transcript.is_empty() {
+                    Err("No speech detected".to_string())
+                } else {
+                    Ok(transcript)
+                }
+            })
             .and_then(|transcript| self.cleaner.clean(&transcript));
         match text {
-            Ok(text) => self.inserter.insert(&text),
+            Ok(text) => {
+                self.inserter.insert(&text);
+                self.last_dictation = Some(text);
+            }
             Err(e) => log::error!("Dictation failed: {e}"),
         }
         self.feedback.show(Toast::Hidden);
@@ -269,15 +288,19 @@ mod tests {
         }
     }
 
+    /// What the fake Transcriber returns next; tests can change it.
+    type NextTranscription = Rc<RefCell<Result<String, String>>>;
+
     /// Transcription takes `delay` of (fake) time, like a network call.
     struct FakeTranscriber {
         clock: FakeClock,
         delay: Duration,
+        transcript: NextTranscription,
     }
     impl Transcriber for FakeTranscriber {
         fn transcribe(&mut self, _audio: &Audio) -> Result<String, String> {
             self.clock.advance(self.delay);
-            Ok("hello".to_string())
+            self.transcript.borrow().clone()
         }
     }
 
@@ -298,6 +321,7 @@ mod tests {
         core: Dictation,
         clock: FakeClock,
         log: Log,
+        transcript: NextTranscription,
     }
 
     const TRANSCRIPTION_TIME: Duration = Duration::from_secs(1);
@@ -306,18 +330,32 @@ mod tests {
         fn new() -> Self {
             let log = Log::default();
             let clock = FakeClock(Rc::new(Cell::new(Instant::now())));
+            let transcript = NextTranscription::new(RefCell::new(Ok("hello".to_string())));
             let core = Dictation::new(
                 Box::new(FakeRecorder(log.clone())),
                 Box::new(FakeTranscriber {
                     clock: clock.clone(),
                     delay: TRANSCRIPTION_TIME,
+                    transcript: transcript.clone(),
                 }),
                 Box::new(EchoCleaner),
                 Box::new(NoInserter),
                 Box::new(FakeFeedback(log.clone())),
                 Box::new(clock.clone()),
             );
-            Self { core, clock, log }
+            Self {
+                core,
+                clock,
+                log,
+                transcript,
+            }
+        }
+
+        /// Holds Ctrl + Space for a second, then releases it.
+        fn dictate(&mut self) {
+            self.press();
+            self.wait(1_000);
+            let _ = self.release();
         }
 
         fn press(&mut self) {
@@ -480,5 +518,39 @@ mod tests {
                 Seen::Toast(Toast::Hidden),
             ]
         );
+    }
+
+    #[test]
+    fn a_successful_dictation_becomes_the_last_dictation() {
+        let mut h = Harness::new();
+        assert_eq!(h.core.last_dictation(), None);
+
+        h.dictate();
+
+        assert_eq!(h.core.last_dictation(), Some("hello"));
+    }
+
+    #[test]
+    fn a_failed_transcription_keeps_the_previous_last_dictation() {
+        let mut h = Harness::new();
+        h.dictate();
+        h.wait(1_000);
+
+        *h.transcript.borrow_mut() = Err("no network".to_string());
+        h.dictate();
+
+        assert_eq!(h.core.last_dictation(), Some("hello"));
+    }
+
+    #[test]
+    fn an_empty_transcript_keeps_the_previous_last_dictation() {
+        let mut h = Harness::new();
+        h.dictate();
+        h.wait(1_000);
+
+        *h.transcript.borrow_mut() = Ok(String::new());
+        h.dictate();
+
+        assert_eq!(h.core.last_dictation(), Some("hello"));
     }
 }

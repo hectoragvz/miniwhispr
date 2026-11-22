@@ -6,13 +6,13 @@
 
 **Blocked by:** 02 (Push-to-Talk with the Toast)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] "Groq API key…" menu item opens a small React window to enter or replace the key
-- [ ] The key is stored in and read from the macOS Keychain only; never in a config file, log or the repo
-- [ ] Groq Transcriber sends the Dictation audio to Groq Whisper large-v3 with a prompt hint for English or Spanish and no fixed language parameter
-- [ ] Audio encoding keeps a 10-minute Dictation within Groq's upload limit
-- [ ] A successful Dictation stores the Transcript as the Last Dictation, in memory only
-- [ ] "Copy last dictation" menu item copies the Last Dictation to the clipboard (disabled when there is none)
-- [ ] Core tests cover: successful transcription updates the Last Dictation
-- [ ] Manual check: an English and a Spanish Dictation (with á, ñ, ¿) both produce correct Transcripts via "Copy last dictation"
+- [x] "Groq API key…" menu item opens a small React window to enter or replace the key
+- [x] The key is stored in and read from the macOS Keychain only; never in a config file, log or the repo
+- [x] Groq Transcriber sends the Dictation audio to Groq Whisper large-v3 with a prompt hint for English or Spanish and no fixed language parameter
+- [x] Audio encoding keeps a 10-minute Dictation within Groq's upload limit
+- [x] A successful Dictation stores the Transcript as the Last Dictation, in memory only
+- [x] "Copy last dictation" menu item copies the Last Dictation to the clipboard (disabled when there is none)
+- [x] Core tests cover: successful transcription updates the Last Dictation
+- [x] Manual check: an English and a Spanish Dictation (with á, ñ, ¿) both produce correct Transcripts via "Copy last dictation"
