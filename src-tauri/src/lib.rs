@@ -7,6 +7,7 @@ mod key_window;
 mod launch_at_login;
 mod menu_bar;
 mod microphone;
+mod paste;
 mod shortcut;
 mod sounds;
 mod toast;

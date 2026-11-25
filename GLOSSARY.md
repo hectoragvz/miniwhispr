@@ -43,5 +43,5 @@ _Avoid_: Pasting, typing, output
 ### Feedback
 
 **Toast**:
-The small, text-free floating indicator shown during a Dictation: animated voice waves while listening, a spinner while processing.
+The small, text-free floating indicator shown during a Dictation: animated voice waves while listening, a spinner while processing, and a red flash and shake when the Dictation fails.
 _Avoid_: Popup, HUD, overlay, notification

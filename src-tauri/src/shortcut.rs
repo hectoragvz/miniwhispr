@@ -17,7 +17,8 @@ use objc2_core_graphics::{
 };
 
 const SPACE: CGKeyCode = 49;
-/// Tags the Ctrl + Space taps Miniwhispr replays, so its own tap lets them by.
+/// Tags the key taps Miniwhispr sends (a replayed Ctrl + Space, the Cmd + V
+/// of an Insertion), so its own event tap lets them by.
 const REPLAY_TAG: i64 = 0x6d77;
 
 /// Starts watching the keyboard on a thread of its own. `on_shortcut` gets
@@ -32,12 +33,19 @@ pub fn watch(on_shortcut: impl Fn(Shortcut, Instant) + Send + 'static) {
 /// Sends a Ctrl + Space tap to the focused app, for presses too short to be a
 /// Dictation.
 pub fn replay_tap() {
+    send_keys(SPACE, CGEventFlags::MaskControl);
+}
+
+/// Sends a tap of `key` with exactly the `modifiers` held, whatever keys the
+/// user is holding, to the focused app. Tagged as Miniwhispr's own, so its
+/// event tap lets it by.
+pub fn send_keys(key: CGKeyCode, modifiers: CGEventFlags) {
     for key_down in [true, false] {
-        let Some(event) = CGEvent::new_keyboard_event(None, SPACE, key_down) else {
-            log::error!("Could not create a Ctrl + Space event");
+        let Some(event) = CGEvent::new_keyboard_event(None, key, key_down) else {
+            log::error!("Could not create a key event");
             return;
         };
-        CGEvent::set_flags(Some(&event), CGEventFlags::MaskControl);
+        CGEvent::set_flags(Some(&event), modifiers);
         CGEvent::set_integer_value_field(
             Some(&event),
             CGEventField::EventSourceUserData,

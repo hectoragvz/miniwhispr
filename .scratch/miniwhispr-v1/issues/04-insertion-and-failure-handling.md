@@ -6,14 +6,14 @@
 
 **Blocked by:** 03 (Groq API key and transcription)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Paste Inserter saves the clipboard, writes the text, simulates Cmd+V into the focused app, then restores the previous clipboard contents
-- [ ] Text goes to whichever app has focus when the text is ready
-- [ ] Accented and special characters (á, é, ñ, ü, ¿, ¡) insert correctly
-- [ ] Transcription failure is retried once automatically; a second failure shows the error Toast and inserts nothing
-- [ ] An empty or no-speech Transcript shows the error Toast and inserts nothing
-- [ ] On any error the Last Dictation is unchanged
-- [ ] Toast error state (red flash and shake, then hidden, no text) covered by a Vitest test
-- [ ] Core tests cover: success inserts the text; fail-then-succeed inserts once; two failures give error and no Insertion; no-speech gives error and no Insertion; Last Dictation untouched on error
-- [ ] Manual check: dictation works in Notes, Slack, a browser text field and a terminal; clipboard contents survive; Wi-Fi off gives the red Toast
+- [x] Paste Inserter saves the clipboard, writes the text, simulates Cmd+V into the focused app, then restores the previous clipboard contents
+- [x] Text goes to whichever app has focus when the text is ready
+- [x] Accented and special characters (á, é, ñ, ü, ¿, ¡) insert correctly
+- [x] Transcription failure is retried once automatically; a second failure shows the error Toast and inserts nothing
+- [x] An empty or no-speech Transcript shows the error Toast and inserts nothing
+- [x] On any error the Last Dictation is unchanged
+- [x] Toast error state (red flash and shake, then hidden, no text) covered by a Vitest test
+- [x] Core tests cover: success inserts the text; fail-then-succeed inserts once; two failures give error and no Insertion; no-speech gives error and no Insertion; Last Dictation untouched on error
+- [x] Manual check: dictation works in Notes, Slack, a browser text field and a terminal; clipboard contents survive; Wi-Fi off gives the red Toast

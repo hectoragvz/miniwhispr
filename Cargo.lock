@@ -2294,6 +2294,7 @@ dependencies = [
  "rubato",
  "security-framework",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-log",

@@ -18,6 +18,12 @@ const MODEL: &str = "whisper-large-v3";
 const PROMPT: &str =
     "The speaker talks in English or Spanish. El hablante habla en inglés o en español.";
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Whisper's own rule for silence, from its reference `transcribe()`: a
+/// segment is left out when Whisper thinks it is probably not speech and is
+/// not confident in the words it heard. On silence Whisper makes up words
+/// such as "END" or "Thank you.", and this is how they are caught.
+const NO_SPEECH_THRESHOLD: f64 = 0.6;
+const LOG_PROB_THRESHOLD: f64 = -1.0;
 
 pub struct GroqTranscriber {
     client: Client,
@@ -33,9 +39,17 @@ impl GroqTranscriber {
     }
 }
 
+/// Groq's `verbose_json` answer, which splits the Transcript into segments.
 #[derive(Deserialize)]
 struct Transcription {
+    segments: Vec<Segment>,
+}
+
+#[derive(Deserialize)]
+struct Segment {
     text: String,
+    no_speech_prob: f64,
+    avg_logprob: f64,
 }
 
 impl Transcriber for GroqTranscriber {
@@ -49,6 +63,7 @@ impl Transcriber for GroqTranscriber {
         let form = Form::new()
             .text("model", MODEL)
             .text("prompt", PROMPT)
+            .text("response_format", "verbose_json")
             .part("file", file);
         let started = Instant::now();
         let response = self
@@ -74,9 +89,23 @@ impl Transcriber for GroqTranscriber {
             audio.samples.len() as f64 / f64::from(SAMPLE_RATE),
             started.elapsed().as_secs_f64(),
         );
-        // Whisper starts its text with a space.
-        Ok(transcription.text.trim().to_string())
+        Ok(speech(transcription))
     }
+}
+
+/// The Transcript without the segments Whisper takes for silence. Empty when
+/// there was no speech at all.
+fn speech(transcription: Transcription) -> String {
+    let text: String = transcription
+        .segments
+        .into_iter()
+        .filter(|s| {
+            !(s.no_speech_prob > NO_SPEECH_THRESHOLD && s.avg_logprob <= LOG_PROB_THRESHOLD)
+        })
+        .map(|s| s.text)
+        .collect();
+    // Whisper starts each segment with a space.
+    text.trim().to_string()
 }
 
 /// How long a transcription may take: 30 s, plus 15 s per minute of audio
@@ -152,5 +181,35 @@ mod tests {
             1, 0, 0xfe, 0xff, // the samples, little-endian
         ];
         assert_eq!(wav(&audio), expected);
+    }
+
+    #[test]
+    fn segments_whisper_takes_for_silence_are_left_out() {
+        let transcription: Transcription = serde_json::from_str(
+            r#"{
+                "text": " Let's meet tomorrow. END Thank you.",
+                "segments": [
+                    { "text": " Let's meet tomorrow.", "no_speech_prob": 0.01, "avg_logprob": -0.2 },
+                    { "text": " END", "no_speech_prob": 0.9, "avg_logprob": -1.4 },
+                    { "text": " Thank you.", "no_speech_prob": 0.7, "avg_logprob": -0.3 }
+                ]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(speech(transcription), "Let's meet tomorrow. Thank you.");
+    }
+
+    #[test]
+    fn a_dictation_of_only_silence_has_no_speech() {
+        let transcription: Transcription = serde_json::from_str(
+            r#"{
+                "text": " END",
+                "segments": [{ "text": " END", "no_speech_prob": 0.95, "avg_logprob": -1.1 }]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(speech(transcription), "");
     }
 }

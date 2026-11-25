@@ -5,7 +5,8 @@ import "./Toast.css";
 export type ToastState =
   | { kind: "hidden" }
   | { kind: "listening"; level: number }
-  | { kind: "processing" };
+  | { kind: "processing" }
+  | { kind: "error" };
 
 /** How much each voice wave bar follows the level, centre bars most. */
 const BAR_WEIGHTS = [0.45, 0.7, 0.9, 1, 0.9, 0.7, 0.45];
@@ -18,6 +19,12 @@ interface Props {
 }
 
 type Shown = Exclude<ToastState, { kind: "hidden" }>;
+
+const LABELS: Record<Shown["kind"], string> = {
+  listening: "Listening",
+  processing: "Processing",
+  error: "Error",
+};
 
 /**
  * The text-free pill shown during a Dictation. When `state` becomes hidden it
@@ -35,22 +42,25 @@ export function Toast({ state, onHidden }: Props) {
   }
 
   const leaving = state.kind === "hidden";
+  const className = ["toast", shown.kind === "error" && "toast--error", leaving && "toast--leaving"]
+    .filter(Boolean)
+    .join(" ");
   const onAnimationEnd = (event: AnimationEvent) => {
-    // Only the pill's own exit animation, not its waves or spinner.
+    // Only the pill's own exit animation, not its waves, spinner or shake.
     if (leaving && event.target === event.currentTarget) {
       setLast(null);
       onHidden();
     }
   };
-  const listening = shown.kind === "listening";
   return (
     <div
-      className={leaving ? "toast toast--leaving" : "toast"}
+      className={className}
       role="status"
-      aria-label={listening ? "Listening" : "Processing"}
+      aria-label={LABELS[shown.kind]}
       onAnimationEnd={onAnimationEnd}
     >
-      {listening ? <Waves level={shown.level} /> : <div className="spinner" data-testid="spinner" />}
+      {shown.kind === "listening" && <Waves level={shown.level} />}
+      {shown.kind === "processing" && <div className="spinner" data-testid="spinner" />}
     </div>
   );
 }

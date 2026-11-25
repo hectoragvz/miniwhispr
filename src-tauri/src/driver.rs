@@ -10,9 +10,10 @@ use tauri::menu::MenuItem;
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::clipboard;
-use crate::dictation::{Cleaner, Clock, Dictation, Feedback, Inserter, Release, Sound, Toast};
+use crate::dictation::{Cleaner, Clock, Dictation, Feedback, Release, Sound, Toast};
 use crate::groq::GroqTranscriber;
 use crate::microphone::Microphone;
+use crate::paste::PasteInserter;
 use crate::shortcut::{self, Shortcut};
 use crate::sounds::Sounds;
 use crate::toast;
@@ -45,7 +46,7 @@ pub fn start(app: &AppHandle, copy_item: MenuItem<Wry>) {
                 })),
                 Box::new(GroqTranscriber::new()),
                 Box::new(NotYet),
-                Box::new(NotYet),
+                Box::new(PasteInserter::new(main_thread.clone())),
                 Box::new(AppFeedback {
                     app,
                     sounds: Sounds::load(),
@@ -126,16 +127,11 @@ impl Clock for SystemClock {
     }
 }
 
-/// Stands in for Cleanup and Insertion until they exist: the Transcript is
-/// the final text, and nothing is inserted.
+/// Stands in for Cleanup until it exists: the Transcript is the final text.
 struct NotYet;
 
 impl Cleaner for NotYet {
     fn clean(&mut self, transcript: &str) -> Result<String, String> {
         Ok(transcript.to_string())
     }
-}
-
-impl Inserter for NotYet {
-    fn insert(&mut self, _text: &str) {}
 }

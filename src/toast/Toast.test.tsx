@@ -63,3 +63,27 @@ test("listening again while animating out keeps the Toast", () => {
   expect(onHidden).not.toHaveBeenCalled();
   expect(screen.getByRole("status", { name: "Listening" })).toBeTruthy();
 });
+
+test("an error flashes the Toast red and shakes it, then it hides, with no text", () => {
+  const onHidden = vi.fn();
+  const { container, rerender } = render(
+    <Toast state={{ kind: "processing" }} onHidden={onHidden} />,
+  );
+
+  rerender(<Toast state={{ kind: "error" }} onHidden={onHidden} />);
+  const toast = screen.getByRole("status", { name: "Error" });
+  expect(toast.classList).toContain("toast--error");
+  expect(screen.queryByTestId("spinner")).toBeNull();
+  expect(toast.textContent).toBe("");
+
+  // The shake ending is not the Toast leaving.
+  fireEvent.animationEnd(toast);
+  expect(onHidden).not.toHaveBeenCalled();
+
+  rerender(<Toast state={{ kind: "hidden" }} onHidden={onHidden} />);
+  expect(screen.getByRole("status", { name: "Error" }).classList).toContain("toast--error");
+  fireEvent.animationEnd(screen.getByRole("status"));
+
+  expect(onHidden).toHaveBeenCalledOnce();
+  expect(container.innerHTML).toBe("");
+});

@@ -11,6 +11,9 @@ use serde::Serialize;
 pub const HOLD_THRESHOLD: Duration = Duration::from_millis(250);
 /// A Dictation that reaches this length ends as if the keys were released.
 pub const MAX_DICTATION: Duration = Duration::from_secs(10 * 60);
+/// How long the Toast shows a failed Dictation before it hides. Its flash and
+/// shake (`src/toast/Toast.css`) fit inside this.
+pub const ERROR_TOAST: Duration = Duration::from_millis(700);
 
 /// Captured speech: 16 kHz mono, 16-bit samples.
 pub struct Audio {
@@ -62,6 +65,8 @@ pub enum Toast {
         level: f32,
     },
     Processing,
+    /// The Dictation failed and nothing was inserted.
+    Error,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -88,6 +93,10 @@ enum State {
     },
     Listening {
         started_at: Instant,
+    },
+    /// The Toast is showing that the Dictation failed.
+    Error {
+        until: Instant,
     },
 }
 
@@ -156,6 +165,7 @@ impl Dictation {
         match self.state {
             State::Pending { pressed_at } => Some(pressed_at + HOLD_THRESHOLD),
             State::Listening { started_at } => Some(started_at + MAX_DICTATION),
+            State::Error { until } => Some(until),
             State::Idle => None,
         }
     }
@@ -177,7 +187,7 @@ impl Dictation {
                 self.finish();
                 Release::Swallow
             }
-            State::Idle => Release::Swallow,
+            State::Idle | State::Error { .. } => Release::Swallow,
         }
     }
 
@@ -191,6 +201,10 @@ impl Dictation {
             match self.state {
                 State::Pending { .. } => self.start_listening(deadline),
                 State::Listening { .. } => self.finish(),
+                State::Error { .. } => {
+                    self.feedback.show(Toast::Hidden);
+                    self.state = State::Idle;
+                }
                 State::Idle => unreachable!("Idle has no deadline"),
             }
         }
@@ -207,13 +221,13 @@ impl Dictation {
         self.feedback.show(Toast::Listening { level: 0.0 });
     }
 
-    /// Ends listening and turns the audio into inserted text.
+    /// Ends listening and turns the audio into inserted text. If that fails,
+    /// nothing is inserted and the Toast shows the error.
     fn finish(&mut self) {
         let audio = self.recorder.stop();
         self.feedback.play(Sound::Stop);
         self.feedback.show(Toast::Processing);
         let text = self
-            .transcriber
             .transcribe(&audio)
             .and_then(|transcript| {
                 if transcript.is_empty() {
@@ -227,12 +241,27 @@ impl Dictation {
             Ok(text) => {
                 self.inserter.insert(&text);
                 self.last_dictation = Some(text);
+                self.feedback.show(Toast::Hidden);
+                self.state = State::Idle;
+                self.ready_at = self.clock.now();
             }
-            Err(e) => log::error!("Dictation failed: {e}"),
+            Err(e) => {
+                log::error!("Dictation failed: {e}");
+                self.feedback.show(Toast::Error);
+                self.state = State::Error {
+                    until: self.clock.now() + ERROR_TOAST,
+                };
+            }
         }
-        self.feedback.show(Toast::Hidden);
-        self.state = State::Idle;
-        self.ready_at = self.clock.now();
+    }
+
+    /// Transcribes `audio`, trying a second time if the first fails, so a
+    /// brief network or Groq glitch does not cost the Dictation.
+    fn transcribe(&mut self, audio: &Audio) -> Result<String, String> {
+        self.transcriber.transcribe(audio).or_else(|e| {
+            log::warn!("Transcription failed, trying again: {e}");
+            self.transcriber.transcribe(audio)
+        })
     }
 }
 
@@ -240,6 +269,7 @@ impl Dictation {
 mod tests {
     use super::*;
     use std::cell::{Cell, RefCell};
+    use std::collections::VecDeque;
     use std::rc::Rc;
 
     /// Everything the user can notice, in the order it happened.
@@ -249,6 +279,7 @@ mod tests {
         StoppedRecording,
         Toast(Toast),
         Sound(Sound),
+        Inserted(String),
     }
 
     type Log = Rc<RefCell<Vec<Seen>>>;
@@ -288,19 +319,23 @@ mod tests {
         }
     }
 
-    /// What the fake Transcriber returns next; tests can change it.
-    type NextTranscription = Rc<RefCell<Result<String, String>>>;
+    /// What the fake Transcriber returns, one result per call. Once it runs
+    /// out, every transcription is "hello".
+    type Transcriptions = Rc<RefCell<VecDeque<Result<String, String>>>>;
 
     /// Transcription takes `delay` of (fake) time, like a network call.
     struct FakeTranscriber {
         clock: FakeClock,
         delay: Duration,
-        transcript: NextTranscription,
+        results: Transcriptions,
     }
     impl Transcriber for FakeTranscriber {
         fn transcribe(&mut self, _audio: &Audio) -> Result<String, String> {
             self.clock.advance(self.delay);
-            self.transcript.borrow().clone()
+            self.results
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or(Ok("hello".to_string()))
         }
     }
 
@@ -311,9 +346,11 @@ mod tests {
         }
     }
 
-    struct NoInserter;
-    impl Inserter for NoInserter {
-        fn insert(&mut self, _text: &str) {}
+    struct FakeInserter(Log);
+    impl Inserter for FakeInserter {
+        fn insert(&mut self, text: &str) {
+            self.0.borrow_mut().push(Seen::Inserted(text.to_string()));
+        }
     }
 
     /// A Dictation core wired to fakes, plus the user's view of it.
@@ -321,7 +358,7 @@ mod tests {
         core: Dictation,
         clock: FakeClock,
         log: Log,
-        transcript: NextTranscription,
+        transcriptions: Transcriptions,
     }
 
     const TRANSCRIPTION_TIME: Duration = Duration::from_secs(1);
@@ -330,16 +367,16 @@ mod tests {
         fn new() -> Self {
             let log = Log::default();
             let clock = FakeClock(Rc::new(Cell::new(Instant::now())));
-            let transcript = NextTranscription::new(RefCell::new(Ok("hello".to_string())));
+            let transcriptions = Transcriptions::default();
             let core = Dictation::new(
                 Box::new(FakeRecorder(log.clone())),
                 Box::new(FakeTranscriber {
                     clock: clock.clone(),
                     delay: TRANSCRIPTION_TIME,
-                    transcript: transcript.clone(),
+                    results: transcriptions.clone(),
                 }),
                 Box::new(EchoCleaner),
-                Box::new(NoInserter),
+                Box::new(FakeInserter(log.clone())),
                 Box::new(FakeFeedback(log.clone())),
                 Box::new(clock.clone()),
             );
@@ -347,8 +384,15 @@ mod tests {
                 core,
                 clock,
                 log,
-                transcript,
+                transcriptions,
             }
+        }
+
+        /// The next transcriptions return these, in order.
+        fn will_transcribe<const N: usize>(&self, results: [Result<&str, &str>; N]) {
+            self.transcriptions
+                .borrow_mut()
+                .extend(results.map(|result| result.map(str::to_string).map_err(str::to_string)));
         }
 
         /// Holds Ctrl + Space for a second, then releases it.
@@ -377,8 +421,23 @@ mod tests {
             self.clock.0.set(until);
         }
 
+        /// Lets the error Toast run its course.
+        fn wait_out_error(&mut self) {
+            self.wait(ERROR_TOAST.as_millis() as u64);
+        }
+
         fn seen(&self) -> Vec<Seen> {
             self.log.take()
+        }
+
+        fn inserted(&self) -> Vec<String> {
+            self.seen()
+                .into_iter()
+                .filter_map(|seen| match seen {
+                    Seen::Inserted(text) => Some(text),
+                    _ => None,
+                })
+                .collect()
         }
     }
 
@@ -427,6 +486,7 @@ mod tests {
                 Seen::StoppedRecording,
                 Seen::Sound(Sound::Stop),
                 Seen::Toast(Toast::Processing),
+                Seen::Inserted("hello".to_string()),
                 Seen::Toast(Toast::Hidden),
             ]
         );
@@ -487,6 +547,7 @@ mod tests {
                 Seen::StoppedRecording,
                 Seen::Sound(Sound::Stop),
                 Seen::Toast(Toast::Processing),
+                Seen::Inserted("hello".to_string()),
                 Seen::Toast(Toast::Hidden),
             ]
         );
@@ -515,6 +576,7 @@ mod tests {
                 Seen::StoppedRecording,
                 Seen::Sound(Sound::Stop),
                 Seen::Toast(Toast::Processing),
+                Seen::Inserted("hello".to_string()),
                 Seen::Toast(Toast::Hidden),
             ]
         );
@@ -536,7 +598,7 @@ mod tests {
         h.dictate();
         h.wait(1_000);
 
-        *h.transcript.borrow_mut() = Err("no network".to_string());
+        h.will_transcribe([Err("no network"), Err("no network")]);
         h.dictate();
 
         assert_eq!(h.core.last_dictation(), Some("hello"));
@@ -548,9 +610,97 @@ mod tests {
         h.dictate();
         h.wait(1_000);
 
-        *h.transcript.borrow_mut() = Ok(String::new());
+        h.will_transcribe([Ok("")]);
         h.dictate();
 
         assert_eq!(h.core.last_dictation(), Some("hello"));
+    }
+
+    #[test]
+    fn a_successful_dictation_inserts_the_text() {
+        let mut h = Harness::new();
+        h.will_transcribe([Ok("¿Qué tal? Vamos al café mañana.")]);
+
+        h.dictate();
+
+        assert_eq!(h.inserted(), vec!["¿Qué tal? Vamos al café mañana."]);
+    }
+
+    #[test]
+    fn a_failed_transcription_is_retried_once_and_inserted_once() {
+        let mut h = Harness::new();
+        h.will_transcribe([Err("no network"), Ok("Let's meet tomorrow at 3.")]);
+
+        h.dictate();
+
+        assert_eq!(h.inserted(), vec!["Let's meet tomorrow at 3."]);
+    }
+
+    /// What the user notices when a Dictation, whose transcriptions return
+    /// `results`, is released and its error has shown.
+    fn seen_after_release<const N: usize>(results: [Result<&str, &str>; N]) -> Vec<Seen> {
+        let mut h = Harness::new();
+        h.press();
+        h.wait(1_000);
+        h.seen();
+        h.will_transcribe(results);
+
+        let _ = h.release();
+        h.wait_out_error();
+        h.seen()
+    }
+
+    /// The error Toast, and nothing inserted.
+    fn failed() -> Vec<Seen> {
+        vec![
+            Seen::StoppedRecording,
+            Seen::Sound(Sound::Stop),
+            Seen::Toast(Toast::Processing),
+            Seen::Toast(Toast::Error),
+            Seen::Toast(Toast::Hidden),
+        ]
+    }
+
+    #[test]
+    fn two_failed_transcriptions_show_the_error_toast_and_insert_nothing() {
+        let seen = seen_after_release([Err("no network"), Err("no network")]);
+
+        assert_eq!(seen, failed());
+    }
+
+    #[test]
+    fn no_speech_shows_the_error_toast_and_inserts_nothing() {
+        let seen = seen_after_release([Ok("")]);
+
+        assert_eq!(seen, failed());
+    }
+
+    #[test]
+    fn a_press_while_the_error_shows_is_ignored_and_not_passed_through() {
+        let mut h = Harness::new();
+        h.will_transcribe([Ok("")]);
+        h.dictate();
+        h.seen();
+
+        h.press();
+        h.wait(300);
+        let release = h.release();
+        h.wait(1_000);
+
+        assert_eq!(release, Release::Swallow);
+        assert_eq!(h.seen(), vec![Seen::Toast(Toast::Hidden)]);
+    }
+
+    #[test]
+    fn a_hold_after_the_error_starts_a_new_dictation() {
+        let mut h = Harness::new();
+        h.will_transcribe([Ok("")]);
+        h.dictate();
+        h.wait_out_error();
+        h.seen();
+
+        h.dictate();
+
+        assert_eq!(h.inserted(), vec!["hello"]);
     }
 }
