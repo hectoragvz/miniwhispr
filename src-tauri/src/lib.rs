@@ -1,3 +1,4 @@
+mod cleanup;
 mod clipboard;
 mod dictation;
 mod driver;
@@ -11,6 +12,7 @@ mod paste;
 mod shortcut;
 mod sounds;
 mod toast;
+mod voice_commands;
 
 use tauri::{ActivationPolicy, Manager};
 

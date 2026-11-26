@@ -236,7 +236,7 @@ impl Dictation {
                     Ok(transcript)
                 }
             })
-            .and_then(|transcript| self.cleaner.clean(&transcript));
+            .map(|transcript| self.clean(transcript));
         match text {
             Ok(text) => {
                 self.inserter.insert(&text);
@@ -261,6 +261,15 @@ impl Dictation {
         self.transcriber.transcribe(audio).or_else(|e| {
             log::warn!("Transcription failed, trying again: {e}");
             self.transcriber.transcribe(audio)
+        })
+    }
+
+    /// Runs Cleanup on `transcript`. If Cleanup fails, the raw Transcript is
+    /// the final text, so the user still gets their words.
+    fn clean(&mut self, transcript: String) -> String {
+        self.cleaner.clean(&transcript).unwrap_or_else(|e| {
+            log::warn!("Cleanup failed, inserting the raw Transcript: {e}");
+            transcript
         })
     }
 }
@@ -339,10 +348,17 @@ mod tests {
         }
     }
 
-    struct EchoCleaner;
-    impl Cleaner for EchoCleaner {
+    /// What the fake Cleaner returns, one result per call. Once it runs out,
+    /// Cleanup leaves the Transcript as it is.
+    type Cleanups = Rc<RefCell<VecDeque<Result<String, String>>>>;
+
+    struct FakeCleaner(Cleanups);
+    impl Cleaner for FakeCleaner {
         fn clean(&mut self, transcript: &str) -> Result<String, String> {
-            Ok(transcript.to_string())
+            self.0
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or(Ok(transcript.to_string()))
         }
     }
 
@@ -359,6 +375,7 @@ mod tests {
         clock: FakeClock,
         log: Log,
         transcriptions: Transcriptions,
+        cleanups: Cleanups,
     }
 
     const TRANSCRIPTION_TIME: Duration = Duration::from_secs(1);
@@ -368,6 +385,7 @@ mod tests {
             let log = Log::default();
             let clock = FakeClock(Rc::new(Cell::new(Instant::now())));
             let transcriptions = Transcriptions::default();
+            let cleanups = Cleanups::default();
             let core = Dictation::new(
                 Box::new(FakeRecorder(log.clone())),
                 Box::new(FakeTranscriber {
@@ -375,7 +393,7 @@ mod tests {
                     delay: TRANSCRIPTION_TIME,
                     results: transcriptions.clone(),
                 }),
-                Box::new(EchoCleaner),
+                Box::new(FakeCleaner(cleanups.clone())),
                 Box::new(FakeInserter(log.clone())),
                 Box::new(FakeFeedback(log.clone())),
                 Box::new(clock.clone()),
@@ -385,12 +403,20 @@ mod tests {
                 clock,
                 log,
                 transcriptions,
+                cleanups,
             }
         }
 
         /// The next transcriptions return these, in order.
         fn will_transcribe<const N: usize>(&self, results: [Result<&str, &str>; N]) {
             self.transcriptions
+                .borrow_mut()
+                .extend(results.map(|result| result.map(str::to_string).map_err(str::to_string)));
+        }
+
+        /// The next Cleanups return these, in order.
+        fn will_clean<const N: usize>(&self, results: [Result<&str, &str>; N]) {
+            self.cleanups
                 .borrow_mut()
                 .extend(results.map(|result| result.map(str::to_string).map_err(str::to_string)));
         }
@@ -634,6 +660,33 @@ mod tests {
         h.dictate();
 
         assert_eq!(h.inserted(), vec!["Let's meet tomorrow at 3."]);
+    }
+
+    #[test]
+    fn the_cleaned_text_is_inserted_and_becomes_the_last_dictation() {
+        let mut h = Harness::new();
+        h.will_transcribe([Ok("um so lets meet at 3 no at 4")]);
+        h.will_clean([Ok("So let's meet at 4.")]);
+
+        h.dictate();
+
+        assert_eq!(h.inserted(), vec!["So let's meet at 4."]);
+        assert_eq!(h.core.last_dictation(), Some("So let's meet at 4."));
+    }
+
+    #[test]
+    fn a_failed_cleanup_inserts_the_raw_transcript() {
+        let mut h = Harness::new();
+        h.will_transcribe([Ok("um so lets meet at 3 no at 4")]);
+        h.will_clean([Err("Groq is down")]);
+
+        h.dictate();
+
+        assert_eq!(h.inserted(), vec!["um so lets meet at 3 no at 4"]);
+        assert_eq!(
+            h.core.last_dictation(),
+            Some("um so lets meet at 3 no at 4")
+        );
     }
 
     /// What the user notices when a Dictation, whose transcriptions return

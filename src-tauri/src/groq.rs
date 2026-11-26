@@ -54,8 +54,7 @@ struct Segment {
 
 impl Transcriber for GroqTranscriber {
     fn transcribe(&mut self, audio: &Audio) -> Result<String, String> {
-        let key = key_store::read()?
-            .ok_or("No Groq API key yet. Enter one from the menu: Groq API key…")?;
+        let key = key_store::require()?;
         let file = Part::bytes(wav(audio))
             .file_name("dictation.wav")
             .mime_str("audio/wav")

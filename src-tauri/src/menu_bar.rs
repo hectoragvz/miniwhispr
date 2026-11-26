@@ -1,8 +1,9 @@
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Wry};
 
+use crate::voice_commands::VOICE_COMMANDS;
 use crate::{driver, key_window, launch_at_login};
 
 const COPY_LAST_DICTATION: &str = "copy-last-dictation";
@@ -20,6 +21,11 @@ pub fn create(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
         false,
         None::<&str>,
     )?;
+    let voice_commands = Submenu::new(app, "Voice Commands", true)?;
+    for entry in voice_command_entries() {
+        // Disabled: the entries are a reference, there is nothing to click.
+        voice_commands.append(&MenuItem::new(app, entry, false, None::<&str>)?)?;
+    }
     let groq_api_key = MenuItem::with_id(app, GROQ_API_KEY, "Groq API key…", true, None::<&str>)?;
     let launch_at_login_item = CheckMenuItem::with_id(
         app,
@@ -34,6 +40,8 @@ pub fn create(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
         app,
         &[
             &copy_last_dictation,
+            &PredefinedMenuItem::separator(app)?,
+            &voice_commands,
             &PredefinedMenuItem::separator(app)?,
             &groq_api_key,
             &launch_at_login_item,
@@ -69,4 +77,17 @@ pub fn create(app: &AppHandle) -> tauri::Result<MenuItem<Wry>> {
         })
         .build(app)?;
     Ok(copy_last_dictation)
+}
+
+/// One read-only line per Voice Command: both phrases and what it does.
+pub fn voice_command_entries() -> Vec<String> {
+    VOICE_COMMANDS
+        .iter()
+        .map(|command| {
+            format!(
+                "“{}” / “{}”: {}",
+                command.english, command.spanish, command.effect
+            )
+        })
+        .collect()
 }

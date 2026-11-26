@@ -21,6 +21,11 @@ pub fn read() -> Result<Option<String>, String> {
     }
 }
 
+/// The saved key, or an error saying where to enter one.
+pub fn require() -> Result<String, String> {
+    read()?.ok_or_else(|| "No Groq API key yet. Enter one from the menu: Groq API key…".to_string())
+}
+
 /// Saves `key`, replacing any saved one.
 pub fn save(key: &str) -> Result<(), String> {
     set_generic_password(SERVICE, ACCOUNT, key.as_bytes())

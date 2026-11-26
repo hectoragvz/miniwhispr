@@ -9,8 +9,9 @@ use std::time::Instant;
 use tauri::menu::MenuItem;
 use tauri::{AppHandle, Manager, Wry};
 
+use crate::cleanup::GroqCleaner;
 use crate::clipboard;
-use crate::dictation::{Cleaner, Clock, Dictation, Feedback, Release, Sound, Toast};
+use crate::dictation::{Clock, Dictation, Feedback, Release, Sound, Toast};
 use crate::groq::GroqTranscriber;
 use crate::microphone::Microphone;
 use crate::paste::PasteInserter;
@@ -45,7 +46,7 @@ pub fn start(app: &AppHandle, copy_item: MenuItem<Wry>) {
                     let _ = levels.send(Input::Level(level));
                 })),
                 Box::new(GroqTranscriber::new()),
-                Box::new(NotYet),
+                Box::new(GroqCleaner::new()),
                 Box::new(PasteInserter::new(main_thread.clone())),
                 Box::new(AppFeedback {
                     app,
@@ -124,14 +125,5 @@ struct SystemClock;
 impl Clock for SystemClock {
     fn now(&self) -> Instant {
         Instant::now()
-    }
-}
-
-/// Stands in for Cleanup until it exists: the Transcript is the final text.
-struct NotYet;
-
-impl Cleaner for NotYet {
-    fn clean(&mut self, transcript: &str) -> Result<String, String> {
-        Ok(transcript.to_string())
     }
 }
